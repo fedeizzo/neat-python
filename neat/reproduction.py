@@ -7,6 +7,7 @@ from __future__ import division
 import math
 import random
 from itertools import count
+from secrets import choice
 
 from neat.config import ConfigParameter, DefaultClassConfig
 from neat.math_util import mean
@@ -50,6 +51,43 @@ class DefaultReproduction(DefaultClassConfig):
         return new_genomes
 
     @staticmethod
+    def sanitize_spawn(spawn_amounts, pop_size):
+        from scipy.special import softmax
+        import numpy as np
+        while sum(spawn_amounts) < pop_size:
+            # raise Exception("this case should never happen, we should always ahve more amounts than pop_size")
+            # more probable adding to best species 
+            adding_probability = softmax([s for s in spawn_amounts])
+            boosting = np.random.choice(
+                np.arange(len(spawn_amounts)), size = 1, p=adding_probability
+            )
+            # min_amount = max(spawn_amounts)
+            # min_index = -1
+            # for i, amount in enumerate(spawn_amounts):
+            #     if amount <= min_amount and amount > 0:
+            #         min_amount = amount
+            #         min_index = i 
+            spawn_amounts[boosting[0]] += 1
+
+        while sum(spawn_amounts) > pop_size:
+            removing_probability = softmax(spawn_amounts)
+            # for id in np.random.choice(
+                # np.arange(len(genomes)), size=(n_agents), replace=False, p=fitnesses
+            # ):
+            dead = np.random.choice(
+                np.arange(len(spawn_amounts)), size = 1, p=removing_probability
+            )
+            # min_amount = max(spawn_amounts)
+            # min_index = -1
+            # for i, amount in enumerate(spawn_amounts):
+            #     if amount <= min_amount and amount > 0:
+            #         min_amount = amount
+            #         min_index = i 
+            spawn_amounts[dead[0]] -= 1
+        assert sum(spawn_amounts) == pop_size, f"spawn_sum: {sum(spawn_amounts)} // pop_size {pop_size}"
+        return spawn_amounts
+
+    @staticmethod
     def compute_spawn(adjusted_fitness, previous_sizes, pop_size, min_species_size):
         """Compute the proper number of offspring per species (proportional to fitness)."""
         af_sum = sum(adjusted_fitness)
@@ -79,7 +117,7 @@ class DefaultReproduction(DefaultClassConfig):
         norm = pop_size / total_spawn
         spawn_amounts = [max(min_species_size, int(round(n * norm))) for n in spawn_amounts]
 
-        return spawn_amounts
+        return DefaultReproduction.sanitize_spawn(spawn_amounts, pop_size)
 
     def reproduce(self, config, species, pop_size, generation):
         """
@@ -141,9 +179,9 @@ class DefaultReproduction(DefaultClassConfig):
         species.species = {}
         for spawn, s in zip(spawn_amounts, remaining_species):
             # If elitism is enabled, each species always at least gets to retain its elites.
-            spawn = max(spawn, self.reproduction_config.elitism)
-
-            assert spawn > 0
+            #! false!
+            if spawn <= 0:
+                continue
 
             # The species has at least one member for the next generation, so retain it.
             old_members = list(iteritems(s.members))
@@ -159,8 +197,7 @@ class DefaultReproduction(DefaultClassConfig):
                     new_population[i] = m
                     spawn -= 1
 
-            if spawn <= 0:
-                continue
+            
 
             # Only use the survival threshold fraction to use as parents for the next generation.
             repro_cutoff = int(math.ceil(self.reproduction_config.survival_threshold *
