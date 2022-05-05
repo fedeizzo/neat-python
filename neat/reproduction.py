@@ -55,35 +55,20 @@ class DefaultReproduction(DefaultClassConfig):
         from scipy.special import softmax
         import numpy as np
         while sum(spawn_amounts) < pop_size:
-            # raise Exception("this case should never happen, we should always ahve more amounts than pop_size")
-            # more probable adding to best species 
+            # adding fittest species with highest probability 
             adding_probability = softmax([s for s in spawn_amounts])
             boosting = np.random.choice(
                 np.arange(len(spawn_amounts)), size = 1, p=adding_probability
             )
-            # min_amount = max(spawn_amounts)
-            # min_index = -1
-            # for i, amount in enumerate(spawn_amounts):
-            #     if amount <= min_amount and amount > 0:
-            #         min_amount = amount
-            #         min_index = i 
             spawn_amounts[boosting[0]] += 1
 
         while sum(spawn_amounts) > pop_size:
             removing_probability = softmax(spawn_amounts)
-            # for id in np.random.choice(
-                # np.arange(len(genomes)), size=(n_agents), replace=False, p=fitnesses
-            # ):
             dead = np.random.choice(
                 np.arange(len(spawn_amounts)), size = 1, p=removing_probability
             )
-            # min_amount = max(spawn_amounts)
-            # min_index = -1
-            # for i, amount in enumerate(spawn_amounts):
-            #     if amount <= min_amount and amount > 0:
-            #         min_amount = amount
-            #         min_index = i 
-            spawn_amounts[dead[0]] -= 1
+            if spawn_amounts[dead[0]]>0:
+                spawn_amounts[dead[0]] -= 1
         assert sum(spawn_amounts) == pop_size, f"spawn_sum: {sum(spawn_amounts)} // pop_size {pop_size}"
         return spawn_amounts
 
