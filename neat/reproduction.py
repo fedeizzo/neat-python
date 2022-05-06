@@ -18,6 +18,7 @@ from neat.six_util import iteritems, itervalues
 # configuration. This scheme should be adaptive so that species do not evolve
 # to become "cautious" and only make very slow progress.
 
+
 class DefaultReproduction(DefaultClassConfig):
     """
     Implements the default NEAT-python reproduction scheme:
@@ -26,10 +27,14 @@ class DefaultReproduction(DefaultClassConfig):
 
     @classmethod
     def parse_config(cls, param_dict):
-        return DefaultClassConfig(param_dict,
-                                  [ConfigParameter('elitism', int, 0),
-                                   ConfigParameter('survival_threshold', float, 0.2),
-                                   ConfigParameter('min_species_size', int, 2)])
+        return DefaultClassConfig(
+            param_dict,
+            [
+                ConfigParameter("elitism", int, 0),
+                ConfigParameter("survival_threshold", float, 0.2),
+                ConfigParameter("min_species_size", int, 2),
+            ],
+        )
 
     def __init__(self, config, reporters, stagnation):
         # pylint: disable=super-init-not-called
@@ -52,24 +57,38 @@ class DefaultReproduction(DefaultClassConfig):
 
     @staticmethod
     def sanitize_spawn(spawn_amounts, pop_size):
+        """Removes or adds spawns to spawn_amounts as long as the amounts sum
+        up to pop_size, so to spawn the exact number of individuals specified
+        by pop_size.
+
+        Args:
+            spawn_amounts (list[int]): spawn amount for each species.
+            pop_size (int): desired population size.
+
+        Returns:
+            _type_: spawn amounts, but precise.
+        """
         from scipy.special import softmax
         import numpy as np
+
         while sum(spawn_amounts) < pop_size:
-            # adding fittest species with highest probability 
+            # adding fittest species with highest probability
             adding_probability = softmax([s for s in spawn_amounts])
             boosting = np.random.choice(
-                np.arange(len(spawn_amounts)), size = 1, p=adding_probability
+                np.arange(len(spawn_amounts)), size=1, p=adding_probability
             )
             spawn_amounts[boosting[0]] += 1
 
         while sum(spawn_amounts) > pop_size:
             removing_probability = softmax(spawn_amounts)
             dead = np.random.choice(
-                np.arange(len(spawn_amounts)), size = 1, p=removing_probability
+                np.arange(len(spawn_amounts)), size=1, p=removing_probability
             )
-            if spawn_amounts[dead[0]]>0:
+            if spawn_amounts[dead[0]] > 0:
                 spawn_amounts[dead[0]] -= 1
-        assert sum(spawn_amounts) == pop_size, f"spawn_sum: {sum(spawn_amounts)} // pop_size {pop_size}"
+        assert (
+            sum(spawn_amounts) == pop_size
+        ), f"spawn_sum: {sum(spawn_amounts)} // pop_size {pop_size}"
         return spawn_amounts
 
     @staticmethod
@@ -100,7 +119,9 @@ class DefaultReproduction(DefaultClassConfig):
         # the population size requested by the user.
         total_spawn = sum(spawn_amounts)
         norm = pop_size / total_spawn
-        spawn_amounts = [max(min_species_size, int(round(n * norm))) for n in spawn_amounts]
+        spawn_amounts = [
+            max(min_species_size, int(round(n * norm))) for n in spawn_amounts
+        ]
 
         return DefaultReproduction.sanitize_spawn(spawn_amounts, pop_size)
 
@@ -131,7 +152,7 @@ class DefaultReproduction(DefaultClassConfig):
         # No species left.
         if not remaining_species:
             species.species = {}
-            return {} # was []
+            return {}  # was []
 
         # Find minimum/maximum fitness across the entire population, for use in
         # species adjusted fitness computation.
@@ -147,8 +168,10 @@ class DefaultReproduction(DefaultClassConfig):
             afs.adjusted_fitness = af
 
         adjusted_fitnesses = [s.adjusted_fitness for s in remaining_species]
-        avg_adjusted_fitness = mean(adjusted_fitnesses) # type: float
-        self.reporters.info("Average adjusted fitness: {:.3f}".format(avg_adjusted_fitness))
+        avg_adjusted_fitness = mean(adjusted_fitnesses)  # type: float
+        self.reporters.info(
+            "Average adjusted fitness: {:.3f}".format(avg_adjusted_fitness)
+        )
 
         # Compute the number of new members for each species in the new generation.
         previous_sizes = [len(s.members) for s in remaining_species]
@@ -156,16 +179,20 @@ class DefaultReproduction(DefaultClassConfig):
         # Isn't the effective min_species_size going to be max(min_species_size,
         # self.reproduction_config.elitism)? That would probably produce more accurate tracking
         # of population sizes and relative fitnesses... doing. TODO: document.
-        min_species_size = max(min_species_size,self.reproduction_config.elitism)
-        spawn_amounts = self.compute_spawn(adjusted_fitnesses, previous_sizes,
-                                           pop_size, min_species_size)
+        min_species_size = max(min_species_size, self.reproduction_config.elitism)
+        spawn_amounts = self.compute_spawn(
+            adjusted_fitnesses, previous_sizes, pop_size, min_species_size
+        )
 
         new_population = {}
         species.species = {}
         for spawn, s in zip(spawn_amounts, remaining_species):
             # If elitism is enabled, each species always at least gets to retain its elites.
-            #! false!
-            if spawn <= 0:
+            # #! no more
+            assert (
+                spawn >= 0
+            ), "Problems with the reproduction, some spawn amounts are negative"
+            if spawn == 0:
                 continue
 
             # The species has at least one member for the next generation, so retain it.
@@ -178,15 +205,19 @@ class DefaultReproduction(DefaultClassConfig):
 
             # Transfer elites to new generation.
             if self.reproduction_config.elitism > 0:
-                for i, m in old_members[:self.reproduction_config.elitism]:
+                for i, m in old_members[: self.reproduction_config.elitism]:
                     new_population[i] = m
                     spawn -= 1
-
-            
+                    # fixed problem: if elitism is higher than spots reserved to this generation, we just ignore these elites
+                    if spawn == 0:
+                        break
 
             # Only use the survival threshold fraction to use as parents for the next generation.
-            repro_cutoff = int(math.ceil(self.reproduction_config.survival_threshold *
-                                         len(old_members)))
+            repro_cutoff = int(
+                math.ceil(
+                    self.reproduction_config.survival_threshold * len(old_members)
+                )
+            )
             # Use at least two parents no matter what the threshold fraction result is.
             repro_cutoff = max(repro_cutoff, 2)
             old_members = old_members[:repro_cutoff]
